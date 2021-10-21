@@ -14,6 +14,8 @@ type Communication =
     | Start of string
     | BuildFingerTable of string
 
+let m = Math.Log(16.,2.) |> int
+Console.WriteLine(m)
 
 let sha1Hash input : string=
     let sha = new SHA1Managed()
@@ -24,12 +26,15 @@ let sha1Hash input : string=
         |> String.concat String.Empty
     hashS
 let mutable seed = "Peer_" 
-for i in 1..300 do 
+
+for i in 1.. 16 do 
     seed <- seed + i.ToString()
     let ans = sha1Hash seed   
-    let position = ans.[ans.Length - 8 .. ans.Length]
-    let decValue = Convert.ToInt32(position, 16);
-    Console.WriteLine(ans.Length)
+    let position = ans.[0 .. m]
+    let decValue = Convert.ToInt64(position, 16)
+    Console.WriteLine(decValue)
+
+
 
 // let peer (mailbox: Actor<_>) =
 //     let mutable predecessor = null
