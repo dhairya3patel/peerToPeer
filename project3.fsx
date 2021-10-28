@@ -17,8 +17,10 @@ type Communication =
     | Start of string
     | BuildFingerTable of string
     | Initiate of String //list <IActorRef>
-    | Join of string
+    | FindSuccessor of IActorRef
+    | SetSuccessor of IActorRef
     | Temp of string * IActorRef
+
 
 // let nodes = numNodes |> float
 // let m = Math.Ceiling(Math.Log(nodes, 2.)) |> int
@@ -54,6 +56,7 @@ let peer (mailbox: Actor<_>) =
     let fingerTable = OrderedDictionary()
     let mutable predecessor = null
     let mutable successor = null
+    let mutable selfAddress = null
 
     let rec loop() =
         actor {
@@ -62,7 +65,7 @@ let peer (mailbox: Actor<_>) =
             match peermessage with
             | Initiate(_) ->
                 successor <- mailbox.Self
-                let selfAddress = mailbox.Self.Path.Name.Split('_').[1] |> int
+                selfAddress <- mailbox.Self.Path.Name.Split('_').[1] |> int
                 fingerTable.Add(selfAddress + 1, selfAddress)
                 Console.WriteLine(fingerTable.[0])
                 // Console.WriteLine("Ring created")
@@ -82,6 +85,33 @@ let peer (mailbox: Actor<_>) =
                 // mailbox.Sender() <! Temp(hashedValue, mailbox.Self)
                 // Array.set ring ringPosition mailbox.Self
                 // Console.WriteLine("Ring " + (Array.get ring ringPosition).ToString())
+
+
+            | FindSuccessor(nodeRef) ->
+                let numId = nodeRef.Path.Name.Split('_').[1] |> int
+                let succId = successor.Path.Name.Split('_').[1] |> int
+                //let mutable break
+                if numId > selfAddress && numId < succId then
+                    nodeRef <! SetSuccessor(successor)
+                    //nodeRef <! SetSuccessor(successor)
+                else
+                    let mutable break = false
+                    let mutable i = m-1
+                    let mutable fingerId = null
+                    while not break && i > 0 do 
+                        fingerId <- fingerTable.[i].Path.Name.Split('_').[1] |> int
+                        if fingerId > selfAddress && fingerId < numId then
+                            break <- true
+                        else
+                            i <- i - 1
+                    if break then 
+                        fingerTable.[i] <! FindSuccessor(nodeRef)        
+
+
+            | SetSuccessor(nodeRef) ->
+                successor <- nodeRef
+                fingerTable.[selfAddress + 1] <- successor
+
 
             | _ -> ignore()
 
