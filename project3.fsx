@@ -27,6 +27,9 @@ type Communication =
     | Notify of IActorRef * IActorRef
     | Temp of string * IActorRef
     | StaticInitiate of list<IActorRef>
+    | Lookup of IActorRef
+    | LookupDone of String
+    | Forward of IActorRef*IActorRef    
 
 // let nodes = numNodes |> float
 let mutable m = 0//Math.Ceiling(Math.Log(nodes, 2.)) |> int
@@ -155,6 +158,7 @@ let peer (mailbox: Actor<_>) =
                               
             | RevertPredecessor(nodeRef) -> mailbox.Sender() <! StabilizeReceiver(predecessor)
 
+
             | StabilizeReceiver(nodeRef) -> let x = nodeRef.Path.Name.Split('_').[1] |> int
                                             let succId = successor.Path.Name.Split('_').[1] |> int
                                             if x > selfAddress && x < succId then
@@ -170,6 +174,21 @@ let peer (mailbox: Actor<_>) =
                                             self <! SetPredecessor(nodeRef) 
                                                                 
  
+            | Lookup(nodeRef) -> 
+
+                if nodeRef = mailbox.Self then
+                    mailbox.Sender() <! LookupDone("")
+                else if List.contains nodeRef fingerTable then
+                    mailbox.Sender() <! LookupDone("")
+                else 
+                    let mutable low = ""
+                    let mutable high = ""
+                    let numid = nodeRef.Path.Name.Split("_").[1]
+                    for i in 0..m-2 do
+                        low <- fingerTable.[i].Path.Name.Split("_").[1]
+                        high <- fingerTable.[i+1].Path.Name.Split("_").[1]
+                        if numid > low && numid < high then
+                            mailbox.Sender() <! Forward(fingerTable.[i],nodeRef)            
             // | MyPredecessor(predecessor)
 
             | _ -> ignore()
@@ -182,6 +201,8 @@ let peer (mailbox: Actor<_>) =
 let master (mailbox: Actor<_>) =
     let mutable peersList = []
     let numNodes = numNodes |> int
+    let mutable hops = 0
+    let mutable lookups = 0
     // let mutable ring = Array.create (pown 2 m) null
     let rec loop() =
         actor {
@@ -194,7 +215,20 @@ let master (mailbox: Actor<_>) =
                 
                 // Console.WriteLine(peersList.ToString())
                 // peersList.[0] <! Initiate("Begin")
-                let initialList = List.append peersList.[0..2] peersList.[90..100]
+                let mutable initialList = []
+                let rnd = Random()
+
+                if peersList.Length > 10 then
+                    let mutable count = 0
+                    let mutable tempInd = 0
+                    while count <= (peersList.Length/5 |> int) do
+                        tempInd <- rnd.Next(0,peersList.Length - 1)
+                        while List.contains peersList.[tempInd] initialList do
+                            tempInd <- rnd.Next(0,peersList.Length - 1)
+                        initialList <- List.append initialList [peersList.[tempInd]]
+                        count <- count + 1
+                else
+                    initialList <- peersList.[0..5]
                 m <- Math.Ceiling(Math.Log(numNodes |> float, 2.)) |> int
                 Console.WriteLine ("m " + m.ToString())
                 // for i in initialList do
@@ -209,16 +243,15 @@ let master (mailbox: Actor<_>) =
                         node
                         <! StaticInitiate(initialList))         
 
-                let rnd = Random()
                 let init = rnd.Next(0,initialList.Length)
                 let mutable fin = 0
-                // while fin = init do
-                fin <- rnd.Next(5,peersList.Length)
+                while fin = init || List.contains peersList.[fin] initialList do
+                    fin <- rnd.Next(5,peersList.Length)
 
                 Console.WriteLine ("Init " + init.ToString())
                 Console.WriteLine ("Fin " + fin.ToString())
 
-                initialList.[1] <! FindSuccessor(peersList.[50])    
+                initialList.[init] <! FindSuccessor(peersList.[fin])
 
 
             | Temp(hashedValue, selfAddress) -> Console.WriteLine("Hashed Value: " + hashedValue)
@@ -226,6 +259,11 @@ let master (mailbox: Actor<_>) =
                                                 //  Console.WriteLine("Position " + ringPosition.ToString() + " " + (Array.get ring ringPosition).ToString())
                                                 //  for y in ring do
                                                 //     Console.WriteLine(Array.get ring y)
+
+            | Forward(dest,nodeRef) ->
+
+                hops <- hops + 1
+                dest <! Lookup(nodeRef)
 
             | _ -> ignore()
 
