@@ -10,7 +10,7 @@ open System.Security.Cryptography
 open System.Text
 
 let mutable numNodes = fsi.CommandLineArgs.[1] |> int64
-// let requests = fsi.CommandLineArgs.[2]
+let numRequests = fsi.CommandLineArgs.[2] |> int
 let system = ActorSystem.Create("Project3")
 
 type Communication =
@@ -259,6 +259,17 @@ let master (mailbox: Actor<_>) =
                                                 //  Console.WriteLine("Position " + ringPosition.ToString() + " " + (Array.get ring ringPosition).ToString())
                                                 //  for y in ring do
                                                 //     Console.WriteLine(Array.get ring y)
+
+            | LookupDone(_) ->
+                hops <- hops + 1
+                lookups <- lookups + 1
+
+                if lookups = numNodes*numRequests then 
+                    Console.WriteLine ("Total Hops" + hops.ToString())
+                    Console.WriteLine ("Total Requests" + numRequests.ToString())
+                    Console.WriteLine ("Total Lookups" + lookups.ToString())
+                    Console.WriteLine ("Average Hops per lookup" + (hops/lookups).ToString())
+                    system.WhenTerminated.Wait()
 
             | Forward(dest,nodeRef) ->
 
