@@ -20,6 +20,11 @@ type Communication =
     | FindSuccessor of IActorRef
     | SetSuccessor of IActorRef
     | SetPredecessor of IActorRef
+    | MyPredecessor of IActorRef
+    | RevertPredecessor of IActorRef
+    | Stabilize of IActorRef
+    | StabilizeReceiver of IActorRef
+    | Notify of IActorRef * IActorRef
     | Temp of string * IActorRef
     | StaticInitiate of list<IActorRef>
 
@@ -134,8 +139,6 @@ let peer (mailbox: Actor<_>) =
                 // if selfAddress = 1 then
                 //     Console.WriteLine successor
  
-
-
             | SetSuccessor(nodeRef) ->
                 successor <- nodeRef
                 // fingerTable.[selfAddress + 1] <- successor
@@ -146,7 +149,28 @@ let peer (mailbox: Actor<_>) =
             | SetPredecessor(nodeRef) ->
                 predecessor <- nodeRef
                 Console.WriteLine ("Node" + mailbox.Self.ToString())
-                Console.WriteLine ("Predecessor" + predecessor.ToString())                
+                Console.WriteLine ("Predecessor" + predecessor.ToString())    
+                
+            | Stabilize(_) -> successor <! RevertPredecessor(mailbox.Self)
+                              
+            | RevertPredecessor(nodeRef) -> mailbox.Sender() <! StabilizeReceiver(predecessor)
+
+            | StabilizeReceiver(nodeRef) -> let x = nodeRef.Path.Name.Split('_').[1] |> int
+                                            let succId = successor.Path.Name.Split('_').[1] |> int
+                                            if x > selfAddress && x < succId then
+                                                nodeRef <! SetSuccessor(successor)
+                                                nodeRef <! SetPredecessor(mailbox.Self)
+                                                nodeRef <! Notify(mailbox.Self, nodeRef)
+                                                // successor.Notify(mailbox.Self)
+
+            | Notify(self, nodeRef) ->  let selfId = self.Path.Name.Split('_').[1] |> int
+                                        let nodeRefId = nodeRef.Path.Name.Split('_').[1] |> int
+                                        let predId = predecessor.Path.Name.Split('_').[1] |> int
+                                        if isNull predecessor || (nodeRefId > predId && nodeRefId < selfId) then
+                                            self <! SetPredecessor(nodeRef) 
+                                                                
+ 
+            // | MyPredecessor(predecessor)
 
             | _ -> ignore()
 
