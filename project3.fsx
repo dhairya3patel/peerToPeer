@@ -76,7 +76,7 @@ let peer (mailbox: Actor<_>) =
                 successor <- mailbox.Self
                 selfAddress <- mailbox.Self.Path.Name.Split('_').[1] |> int
                 //fingerTable.Add(selfAddress + 1, successor)
-                fingerTable <- List.append fingerTable [successor]
+                fingerTable <- List.append fingerTable [successor, sha1Hash successor]
                 //Console.WriteLine(fingerTable.[0])
                 // Console.WriteLine("Ring created")
                 // let hashedValue = sha1Hash mailbox.Self.Path.Name.Split("_")
@@ -110,15 +110,16 @@ let peer (mailbox: Actor<_>) =
                 else
                     let mutable tempBreak = false
                     let mutable i = m-1
-                    let mutable fingerId = 0
+                    let mutable fingerId = ""
                     while not tempBreak && i >= 0 do 
-                        fingerId <- fingerTable.[i].Path.Name.Split('_').[1] |> int
-                        if fingerId > selfAddress && fingerId < numId then
+                        fingerId <- snd(fingerTable.[i])//fst(fingerTable.[i]).Path.Name.Split('_').[1] |> int
+
+                        if fingerId > sha1Hash selfAddress && fingerId < sha1Hash numId then
                             tempBreak <- true
                         else
                             i <- i - 1
                     if tempBreak then 
-                        fingerTable.[i] <! FindSuccessor(nodeRef)
+                        fst(fingerTable.[i]) <! FindSuccessor(nodeRef)
                     else
                         nodeRef <! SetSuccessor(successor)
                         nodeRef <! SetPredecessor(mailbox.Self)
@@ -135,9 +136,9 @@ let peer (mailbox: Actor<_>) =
                         temp <- temp + 1
                         a <- initialList |> List.indexed |> List.filter(fun(_,x)-> x.Path.Name.Split('_').[1] |> int = temp) |> List.map fst
                     // Console.WriteLine a
-                    list <- List.append list [initialList.[a.[0]]] 
+                    list <- List.append list [(initialList.[a.[0]] , sha1Hash initialList.[a.[0]])]
                 fingerTable <- list
-                successor <- fingerTable.[0]
+                successor <- fst(fingerTable.[0])
                 //Console.WriteLine ("Node " + selfAddress.ToString() + " " + fingerTable.ToString())
                 // if selfAddress = 1 then
                 //     Console.WriteLine successor
@@ -145,7 +146,7 @@ let peer (mailbox: Actor<_>) =
             | SetSuccessor(nodeRef) ->
                 successor <- nodeRef
                 // fingerTable.[selfAddress + 1] <- successor
-                fingerTable <- List.append fingerTable [successor]
+                fingerTable <- List.append fingerTable [successor , sha1Hash successor]
                 Console.WriteLine ("New Node" + mailbox.Self.ToString())
                 Console.WriteLine ("successor" + successor.ToString())  
                               
@@ -178,17 +179,17 @@ let peer (mailbox: Actor<_>) =
 
                 if nodeRef = mailbox.Self then
                     mailbox.Sender() <! LookupDone("")
-                else if List.contains nodeRef fingerTable then
+                else if List.contains (nodeRef, sha1Hash nodeRef) fingerTable then
                     mailbox.Sender() <! LookupDone("")
                 else 
                     let mutable low = ""
                     let mutable high = ""
-                    let numid = nodeRef.Path.Name.Split("_").[1]
+                    let numid = sha1Hash nodeRef//nodeRef.Path.Name.Split("_").[1]
                     for i in 0..m-2 do
-                        low <- fingerTable.[i].Path.Name.Split("_").[1]
-                        high <- fingerTable.[i+1].Path.Name.Split("_").[1]
+                        low <- snd(fingerTable.[i]) //.Path.Name.Split("_").[1]
+                        high <- snd(fingerTable.[i+1]) //.Path.Name.Split("_").[1]
                         if numid > low && numid < high then
-                            mailbox.Sender() <! Forward(fingerTable.[i],nodeRef)            
+                            mailbox.Sender() <! Forward(fst(fingerTable.[i]),nodeRef)            
             // | MyPredecessor(predecessor)
 
             | _ -> ignore()
