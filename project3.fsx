@@ -211,7 +211,7 @@ let master (mailbox: Actor<_>) =
             match message with
             | Start(_) ->
                 peersList <-
-                    [ for i in 0 .. numNodes-1 do
+                    [ for i in 1 .. numNodes do
                         yield (spawn system ("Peer_" + string (i))) peer ]
                 
                 // Console.WriteLine(peersList.ToString())
@@ -232,8 +232,8 @@ let master (mailbox: Actor<_>) =
                     initialList <- peersList.[0..5]
                 m <- Math.Ceiling(Math.Log(numNodes |> float, 2.)) |> int
                 Console.WriteLine ("m " + m.ToString())
-                // for i in initialList do
-                //     Console.WriteLine(i)
+                for i in initialList do
+                    Console.WriteLine(i)
                 initialList
                 |> List.iter (fun node ->
                         node
@@ -244,10 +244,10 @@ let master (mailbox: Actor<_>) =
                         node
                         <! StaticInitiate(initialList))         
 
-                let init = rnd.Next(0,initialList.Length)
+                let init = rnd.Next(0,initialList.Length - 1)
                 let mutable fin = 0
                 while fin = init || List.contains peersList.[fin] initialList do
-                    fin <- rnd.Next(5,peersList.Length)
+                    fin <- rnd.Next(5,peersList.Length - 1)
 
                 Console.WriteLine ("Init " + init.ToString())
                 Console.WriteLine ("Fin " + fin.ToString())
