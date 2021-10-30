@@ -66,6 +66,8 @@ let peer (mailbox: Actor<_>) =
     let mutable predecessor = null
     let mutable successor = null
     let mutable selfAddress = 0
+    let mutable successorAddress = ""
+    let mutable selfAddressString = ""
 
     let rec loop() =
         actor {
@@ -74,9 +76,11 @@ let peer (mailbox: Actor<_>) =
             match peermessage with
             | Initiate(_) ->
                 successor <- mailbox.Self
+                // successorAddress <- 
                 selfAddress <- mailbox.Self.Path.Name.Split('_').[1] |> int
+                selfAddressString <- mailbox.Self.Path.Name.Split('_').[1]
                 //fingerTable.Add(selfAddress + 1, successor)
-                fingerTable <- List.append fingerTable [successor, sha1Hash successor]
+                fingerTable <- List.append fingerTable [successor, sha1Hash selfAddress]
                 //Console.WriteLine(fingerTable.[0])
                 // Console.WriteLine("Ring created")
                 // let hashedValue = sha1Hash mailbox.Self.Path.Name.Split("_")
@@ -103,18 +107,18 @@ let peer (mailbox: Actor<_>) =
                 let numId = nodeRef.Path.Name.Split('_').[1] |> int
                 let succId = successor.Path.Name.Split('_').[1] |> int
                 //let mutable break
-                if sha1Hash nodeRef > sha1Hash mailbox.Self && sha1Hash nodeRef < snd(fingerTable.[0] )then
+                if numId > selfAddress && numId < succId then
                     nodeRef <! SetSuccessor(successor,"New",initialList)
                     nodeRef <! SetPredecessor(mailbox.Self)
                     //nodeRef <! SetSuccessor(successor)
                 else
                     let mutable tempBreak = false
                     let mutable i = m-1
-                    let mutable fingerId = ""
+                    let mutable fingerId = 0
                     while not tempBreak && i >= 0 do 
-                        fingerId <- snd(fingerTable.[i])//fst(fingerTable.[i]).Path.Name.Split('_').[1] |> int
+                        fingerId <- (fst(fingerTable.[i]).Path.Name.Split('_').[1]) |> int
 
-                        if fingerId > sha1Hash selfAddress && fingerId < sha1Hash numId then
+                        if fingerId > selfAddress && fingerId < numId then
                             tempBreak <- true
                         else
                             i <- i - 1
@@ -147,15 +151,16 @@ let peer (mailbox: Actor<_>) =
 
                     for i in fingerTable do 
                         Console.WriteLine i
-                //Console.WriteLine ("Node " + selfAddress.ToString() + " " + fingerTable.ToString())
+                Console.WriteLine ("Node " + selfAddress.ToString() + " " + fingerTable.ToString())
                 // if selfAddress = 1 then
                 //     Console.WriteLine successor
  
             | SetSuccessor(nodeRef,msg,initialList) ->
                 successor <- nodeRef
                 // fingerTable.[selfAddress + 1] <- successor
+                let succId = successor.Path.Name.Split('_').[1] |> int
                 let mutable list = fingerTable.[1..fingerTable.Length]
-                fingerTable <- List.append [(successor , sha1Hash successor)] list
+                fingerTable <- List.append [(successor , sha1Hash succId)] list
                 Console.WriteLine ("New Node" + mailbox.Self.ToString())
                 Console.WriteLine ("successor" + successor.ToString())  
                 if msg = "New" then
@@ -180,24 +185,24 @@ let peer (mailbox: Actor<_>) =
                 // Console.WriteLine ("Node" + mailbox.Self.ToString())
                 // Console.WriteLine ("Predecessor" + predecessor.ToString())    
                 
-            | Stabilize(_) -> successor <! RevertPredecessor(mailbox.Self)
+            // | Stabilize(_) -> successor <! RevertPredecessor(mailbox.Self)
                               
-            | RevertPredecessor(nodeRef) -> mailbox.Sender() <! StabilizeReceiver(predecessor)
+            // | RevertPredecessor(nodeRef) -> mailbox.Sender() <! StabilizeReceiver(predecessor)
 
 
-            | StabilizeReceiver(nodeRef) -> let x = nodeRef.Path.Name.Split('_').[1] |> int
-                                            let succId = successor.Path.Name.Split('_').[1] |> int
-                                            if x > selfAddress && x < succId then
-                                                nodeRef <! SetSuccessor(successor)
-                                                nodeRef <! SetPredecessor(mailbox.Self)
-                                                nodeRef <! Notify(mailbox.Self, nodeRef)
+            // | StabilizeReceiver(nodeRef) -> let x = nodeRef.Path.Name.Split('_').[1] |> int
+            //                                 let succId = successor.Path.Name.Split('_').[1] |> int
+            //                                 if x > selfAddress && x < succId then
+            //                                     nodeRef <! SetSuccessor(successor)
+            //                                     nodeRef <! SetPredecessor(mailbox.Self)
+            //                                     nodeRef <! Notify(mailbox.Self, nodeRef)
                                                 // successor.Notify(mailbox.Self)
 
-            | Notify(self, nodeRef) ->  let selfId = self.Path.Name.Split('_').[1] |> int
-                                        let nodeRefId = nodeRef.Path.Name.Split('_').[1] |> int
-                                        let predId = predecessor.Path.Name.Split('_').[1] |> int
-                                        if isNull predecessor || (nodeRefId > predId && nodeRefId < selfId) then
-                                            self <! SetPredecessor(nodeRef) 
+            // | Notify(self, nodeRef) ->  let selfId = self.Path.Name.Split('_').[1] |> int
+            //                             let nodeRefId = nodeRef.Path.Name.Split('_').[1] |> int
+            //                             let predId = predecessor.Path.Name.Split('_').[1] |> int
+            //                             if isNull predecessor || (nodeRefId > predId && nodeRefId < selfId) then
+            //                                 self <! SetPredecessor(nodeRef) 
                                                                 
  
             | Lookup(nodeRef) -> 
@@ -236,29 +241,31 @@ let master (mailbox: Actor<_>) =
             match message with
             | Start(_) ->
                 peersList <-
-                    [ for i in 1 .. numNodes+1 do
+                    [ for i in 1 .. numNodes do
                         yield (spawn system ("Peer_" + string (i))) peer ]
                 
                 // Console.WriteLine(peersList.ToString())
                 // peersList.[0] <! Initiate("Begin")
                 let mutable initialList = []
+                let mutable tempList = []
                 let rnd = Random()
 
-                // if peersList.Length > 10 then
-                //     let mutable count = 0
-                //     let mutable tempInd = 0
-                //     while count <= (peersList.Length/5 |> int) do
-                //         tempInd <- rnd.Next(0,peersList.Length - 1)
-                //         while List.contains peersList.[tempInd] initialList do
-                //             tempInd <- rnd.Next(0,peersList.Length - 1)
-                //         initialList <- List.append initialList [peersList.[tempInd]]
-                //         count <- count + 1
-                // else
-                initialList <- peersList.[0..5]
+                if peersList.Length > 10 then
+                    let mutable count = 0
+                    let mutable tempInd = 0
+                    while count <= (peersList.Length/5 |> int) do
+                        tempInd <- rnd.Next(0,peersList.Length - 1)
+                        while List.contains peersList.[tempInd] initialList do
+                            tempInd <- rnd.Next(0,peersList.Length - 1)
+                        initialList <- List.append initialList [peersList.[tempInd]]
+                        tempList <- tempInd :: tempList
+                        count <- count + 1
+                else
+                    initialList <- peersList.[0..5]
                 m <- Math.Ceiling(Math.Log(numNodes |> float, 2.)) |> int
                 Console.WriteLine ("m " + m.ToString())
-                // for i in initialList do
-                //     Console.WriteLine(i)
+                for i in initialList do
+                    Console.WriteLine(i)
                 initialList
                 |> List.iter (fun node ->
                         node
@@ -270,21 +277,26 @@ let master (mailbox: Actor<_>) =
                         <! StaticInitiate(initialList))         
 
                 // while initialList.Length < peersList.Length do
-                let mutable fin = null
-                let mutable init = 0
-                for i in 6..numNodes do
-                    init <- rnd.Next(0,initialList.Length - 1)
+                // let mutable fin = ""
+                // let mutable init = 0
 
-                    fin <- peersList.[i]
+                // while not (List.contains peersList.[init] initialList) do
+                    // fin <- rnd.Next(5,peersList.Length - 1)
+                let init = tempList.[rnd.Next(0, tempList.Length - 1)]
+                
+                // for i in 6..numNodes do
+                //     init <- rnd.Next(0,initialList.Length - 1)
 
-                    // while fin = init || List.contains peersList.[fin] initialList do
-                    //     fin <- rnd.Next(5,peersList.Length - 1)
+                //     fin <- peersList.[i]
 
-                    Console.WriteLine ("Init " + peersList.[init].ToString())
-                    // Console.WriteLine ("Fin " + peersList.[fin].ToString())
+                // while fin = init || List.contains peersList.[fin] initialList do
+                let fin = peersList.[rnd.Next(0, peersList.Length - 1)]
 
-                    initialList.[init] <! FindSuccessor(fin,initialList)
-                    initialList <- List.append initialList [fin]
+                Console.WriteLine ("Init " + peersList.[init].ToString())
+                Console.WriteLine ("Fin " + fin.ToString())
+
+                initialList.[init] <! FindSuccessor(fin,initialList)
+                initialList <- List.append initialList [fin]
                 // for i in initialList do
                 //     Console.WriteLine(i)    
 
