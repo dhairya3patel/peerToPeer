@@ -18,7 +18,7 @@ type Communication =
     | BuildFingerTable of string
     | Initiate of String //list <IActorRef>
     | FindSuccessor of IActorRef*list<IActorRef>
-    | SetSuccessor of IActorRef*String*list<IActorRef>
+    | SetSuccessor of IActorRef*list<IActorRef>
     | SetPredecessor of IActorRef
     | MyPredecessor of IActorRef
     | RevertPredecessor of IActorRef * list<IActorRef>
@@ -67,6 +67,7 @@ let peer (mailbox: Actor<_>) =
     let mutable successor = null
     let mutable selfAddress = 0
     let mutable selfHash = ""
+    let mutable supervisorRef = mailbox.Self
 
     let buildFingerTable (ind : int)(currentList:list<IActorRef>) = 
         let mutable list = []
@@ -81,7 +82,7 @@ let peer (mailbox: Actor<_>) =
                 temp <- temp + 1
                 a <- currentList |> List.indexed |> List.filter(fun(_,x)-> x.Path.Name.Split('_').[1] |> int = temp) |> List.map fst
             // Console.WriteLine a
-            let currentHash = currentList.[a.[0]].Path.Name.Split('_').[1] |> int
+            let currentHash = currentList.[a.[0]].Path.Name  //.Split('_').[1] |> int
             list <- List.append list [(currentList.[a.[0]] , sha1Hash currentHash)]
         list
 
@@ -94,9 +95,10 @@ let peer (mailbox: Actor<_>) =
                 successor <- mailbox.Self
                 // successorAddress <- 
                 selfAddress <- mailbox.Self.Path.Name.Split('_').[1] |> int
-                selfHash <- sha1Hash selfAddress
+                selfHash <- sha1Hash mailbox.Self.Path.Name
                 //fingerTable.Add(selfAddress + 1, successor)
-                fingerTable <- List.append fingerTable [successor, sha1Hash selfAddress]
+                fingerTable <- List.append fingerTable [successor, selfHash]
+                supervisorRef <- mailbox.Sender()
                 //Console.WriteLine(fingerTable.[0])
                 // Console.WriteLine("Ring created")
                 // let hashedValue = sha1Hash mailbox.Self.Path.Name.Split("_")
@@ -126,7 +128,7 @@ let peer (mailbox: Actor<_>) =
                 //Console.WriteLine(succId)
                 //let mutable break
                 if numId > selfAddress && numId < succId then
-                    nodeRef <! SetSuccessor(fst(fingerTable.[0]),"New",initialList)
+                    nodeRef <! SetSuccessor(fst(fingerTable.[0]),initialList)
                     nodeRef <! SetPredecessor(mailbox.Self)
                     //nodeRef <! SetSuccessor(successor)
                 else
@@ -143,7 +145,7 @@ let peer (mailbox: Actor<_>) =
                         if tempBreak then 
                             fst(fingerTable.[i]) <! FindSuccessor(nodeRef,initialList)
                         else
-                            nodeRef <! SetSuccessor(fst(fingerTable.[0]),"New",initialList)
+                            nodeRef <! SetSuccessor(fst(fingerTable.[0]),initialList)
                             // successor <! SetPredecessor(mailbox.Self)
                             // Console.WriteLine("New Predecessor")
 
@@ -153,24 +155,24 @@ let peer (mailbox: Actor<_>) =
                 successor <- fst(fingerTable.[0])
                 successor <! SetPredecessor (mailbox.Self)
 
-                Console.WriteLine ("Node " + selfAddress.ToString() + " " + fingerTable.ToString())
+                // Console.WriteLine ("Node " + selfAddress.ToString() + " " + fingerTable.ToString())
                 // if selfAddress = 1 then
                 //     Console.WriteLine successor
  
-            | SetSuccessor(nodeRef,msg,initialList) ->
+            | SetSuccessor(nodeRef,initialList) ->
                 successor <- nodeRef
-                Console.WriteLine("DEBUG Self Node: " + mailbox.Self.Path.Name + "SUCC " + successor.ToString())
+                // Console.WriteLine("DEBUG Self Node: " + mailbox.Self.Path.Name + "SUCC " + successor.ToString())
                 // Console.WriteLine("DEBUG Self Node: " + mailbox.Self.Path.Name + "PRED " + predecessor.ToString())
                 // fingerTable.[selfAddress + 1] <- successor
-                let succId = successor.Path.Name.Split('_').[1] |> int
+                let succId = successor.Path.Name //.Split('_').[1] |> int
                 let list = buildFingerTable 1 initialList
                 fingerTable <- List.append [(successor ,sha1Hash succId)] list.[1..list.Length - 1]
                 
-                Console.WriteLine ("New Node" + mailbox.Self.ToString())
-                Console.WriteLine ("successor" + successor.ToString())  
-                Console.WriteLine("New node fingertable: " + fingerTable.ToString())
+                // Console.WriteLine ("New Node" + mailbox.Self.ToString())
+                // Console.WriteLine ("successor" + successor.ToString())  
+                // Console.WriteLine("New node fingertable: " + fingerTable.ToString())
                 nodeRef <! SetPredecessor(mailbox.Self)
-                Console.WriteLine("SETSUCCESSORDEBUG " + successor.ToString() + "Predecessor " + mailbox.Self.ToString())
+                // Console.WriteLine("SETSUCCESSORDEBUG " + successor.ToString() + "Predecessor " + mailbox.Self.ToString())
                 // initialList <- List.append initialList [successor]
     
                               
@@ -182,7 +184,7 @@ let peer (mailbox: Actor<_>) =
             | Stabilize(initialList) -> //Console.WriteLine("STDEBUG: "+ mailbox.Self.ToString())
                                         // Console.WriteLine("STDEBUGSUCC: "+ successor.ToString())
                                         successor <! RevertPredecessor(mailbox.Self, initialList)
-                                        Console.WriteLine("Stabilize invoked for: " + successor.ToString() + "By: " + mailbox.Self.Path.Name)
+                                        // Console.WriteLine("Stabilize invoked for: " + successor.ToString() + "By: " + mailbox.Self.Path.Name)
                               
             | RevertPredecessor(nodeRef, initialList) -> mailbox.Sender() <! StabilizeReceiver(predecessor, initialList)
                                                         //  Console.WriteLine("REVERT "+mailbox.Self.Path.Name + " Predecessor: " + predecessor.ToString())
@@ -193,7 +195,7 @@ let peer (mailbox: Actor<_>) =
                                                          
                                                          if x > selfAddress then
                                                             // Console.WriteLine("Hello")
-                                                            mailbox.Self <! SetSuccessor(nodeRef, "Old", initialList)
+                                                            mailbox.Self <! SetSuccessor(nodeRef,initialList)
                                                             // nodeRef <! SetPredecessor(mailbox.Self)
                                                             // nodeRef <! Notify(mailbox.Self, nodeRef)
                                                             // Console.WriteLine("Stabilize Self: " + mailbox.Self.ToString() + " " + "Successor: " + nodeRef.ToString() )
@@ -217,10 +219,13 @@ let peer (mailbox: Actor<_>) =
                                             self <! SetPredecessor(nodeRef) 
                                                                 
  
-            | Lookup(keyHash) -> 
-                Console.WriteLine (selfAddress.ToString() + " " + snd(fingerTable.[0]).ToString())
+            | Lookup(keyHash) ->
+                selfAddress <- mailbox.Self.Path.Name.Split("_").[1] |> int
+                Console.WriteLine ("Source " + mailbox.Self.ToString())
+                Console.WriteLine (selfAddress.ToString() + " " + fingerTable.ToString())
                 if keyHash > selfHash && keyHash < snd(fingerTable.[0]) then//if nodeRef = mailbox.Self then
-                    mailbox.Sender() <! LookupDone("Done")
+                    // mailbox.Sender() <! LookupDone("Done")
+                    supervisorRef <! LookupDone("Done")
                 // else if List.contains (nodeRef, sha1Hash nodeRef) fingerTable then
                 //     mailbox.Sender() <! LookupDone("")
                 else 
@@ -233,9 +238,13 @@ let peer (mailbox: Actor<_>) =
                         high <- snd(fingerTable.[i+1]) //.Path.Name.Split("_").[1]
                         if keyHash > low && keyHash < high then
                             flag <- true
-                            mailbox.Sender() <! Forward(fst(fingerTable.[i]),keyHash)
+                            Console.WriteLine ("Forward to" + fst(fingerTable.[i]).ToString()) 
+                            // mailbox.Sender() <! Forward(fst(fingerTable.[i]),keyHash)
+                            supervisorRef <! Forward(fst(fingerTable.[i]),keyHash)
                     if not flag then
-                        mailbox.Sender() <! Forward(fst(fingerTable.[m - 1]),keyHash)
+                        // mailbox.Sender() <! Forward(fst(fingerTable.[m - 1]),keyHash)
+                        supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash)
+                        Console.WriteLine ("Forward to" + fst(fingerTable.[m - 1]).ToString()) 
 
             | _ -> ignore()
 
@@ -279,9 +288,9 @@ let master (mailbox: Actor<_>) =
 
                 initialList <- peersList.[0..4]
                 m <- Math.Ceiling(Math.Log(initialList.Length |> float, 2.)) |> int
-                Console.WriteLine ("m " + m.ToString())
-                for i in initialList do
-                    Console.WriteLine(i)
+                // Console.WriteLine ("m " + m.ToString())
+                // for i in initialList do
+                //     Console.WriteLine(i)
                 peersList
                 |> List.iter (fun node ->
                         node
@@ -320,7 +329,7 @@ let master (mailbox: Actor<_>) =
 
                 // let fin = null
 
-                Console.WriteLine ("Init " + init.ToString())
+                // Console.WriteLine ("Init " + init.ToString())
                 //Console.WriteLine ("Fin " + fin.ToString())
                 // Console.WriteLine ("Init2 " + init2.ToString())
                 // Console.WriteLine ("Fin2 " + fin2.ToString())
@@ -343,7 +352,7 @@ let master (mailbox: Actor<_>) =
                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(4.0),peersList.[i - 1] ,Stabilize(initialList))
                     initialList <- List.append initialList [newNode]
                     m <- Math.Ceiling(Math.Log(initialList.Length |> float, 2.)) |> int
-                    Console.WriteLine m
+                    // Console.WriteLine m
 //                    init <! FindSuccessor(newNode,initialList)
 
                 initialList
@@ -353,6 +362,12 @@ let master (mailbox: Actor<_>) =
                 initialList
                 |> List.iter (fun node ->
                         system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(2.0),TimeSpan.FromSeconds(1.0),node ,StaticInitiate(initialList)))
+
+                let mutable key = ""                
+                for i in 1..10 do 
+                    key <- sha1Hash ("Song_" + i.ToString())
+                    // Console.WriteLine key //+ rnd.Next(0,numNodes *10).ToString())
+                    system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0),initialList.[rnd.Next(0,initialList.Length - 1)] ,Lookup(key))        
                     
                     //peersList.[i-1] <! Stabilize(initialList)
 
@@ -381,16 +396,10 @@ let master (mailbox: Actor<_>) =
                 // let testKey = "Song_3"
                 // initialList.[4] <! Lookup (sha1Hash testKey)
 
-            | Temp(hashedValue, selfAddress) -> Console.WriteLine("Hashed Value: " + hashedValue)
-                                                // Array.set ring hashedValue selfAddress
-                                                //  Console.WriteLine("Position " + ringPosition.ToString() + " " + (Array.get ring ringPosition).ToString())
-                                                //  for y in ring do
-                                                //     Console.WriteLine(Array.get ring y)
-
             | LookupDone(_) ->
                 hops <- hops + 1
                 lookups <- lookups + 1
-                Console.WriteLine hops
+                // Console.WriteLine lookups
                 if lookups = numNodes*numRequests then 
                     Console.WriteLine ("Total Hops" + hops.ToString())
                     Console.WriteLine ("Total Requests" + numRequests.ToString())
