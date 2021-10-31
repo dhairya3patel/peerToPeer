@@ -27,9 +27,9 @@ type Communication =
     | Notify of IActorRef * IActorRef
     | Temp of string * IActorRef
     | StaticInitiate of list<IActorRef>
-    | Lookup of IActorRef
+    | Lookup of String
     | LookupDone of String
-    | Forward of IActorRef*IActorRef    
+    | Forward of IActorRef*String
 
 // let nodes = numNodes |> float
 let mutable m = 0//Math.Ceiling(Math.Log(nodes, 2.)) |> int
@@ -94,7 +94,7 @@ let peer (mailbox: Actor<_>) =
                 successor <- mailbox.Self
                 // successorAddress <- 
                 selfAddress <- mailbox.Self.Path.Name.Split('_').[1] |> int
-                // selfHash <- sha1Hash selfAddress
+                selfHash <- sha1Hash selfAddress
                 //fingerTable.Add(selfAddress + 1, successor)
                 fingerTable <- List.append fingerTable [successor, sha1Hash selfAddress]
                 //Console.WriteLine(fingerTable.[0])
@@ -217,22 +217,21 @@ let peer (mailbox: Actor<_>) =
                                             self <! SetPredecessor(nodeRef) 
                                                                 
  
-            | Lookup(nodeRef) -> 
+            | Lookup(keyHash) -> 
 
-                if nodeRef = mailbox.Self then
+                if keyHash > selfHash && keyHash < snd(fingerTable.[0]) then//if nodeRef = mailbox.Self then
                     mailbox.Sender() <! LookupDone("")
-                else if List.contains (nodeRef, sha1Hash nodeRef) fingerTable then
-                    mailbox.Sender() <! LookupDone("")
+                // else if List.contains (nodeRef, sha1Hash nodeRef) fingerTable then
+                //     mailbox.Sender() <! LookupDone("")
                 else 
                     let mutable low = ""
                     let mutable high = ""
-                    let numid = sha1Hash nodeRef//nodeRef.Path.Name.Split("_").[1]
+                    //let numid = sha1Hash nodeRef//nodeRef.Path.Name.Split("_").[1]
                     for i in 0..m-2 do
                         low <- snd(fingerTable.[i]) //.Path.Name.Split("_").[1]
                         high <- snd(fingerTable.[i+1]) //.Path.Name.Split("_").[1]
-                        if numid > low && numid < high then
-                            mailbox.Sender() <! Forward(fst(fingerTable.[i]),nodeRef)            
-            // | MyPredecessor(predecessor)
+                        if keyHash > low && keyHash < high then
+                            mailbox.Sender() <! Forward(fst(fingerTable.[i]),keyHash)
 
             | _ -> ignore()
 
