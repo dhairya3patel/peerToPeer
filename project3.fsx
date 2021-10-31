@@ -6,12 +6,20 @@ open System.Collections.Generic
 open System.Collections.Specialized;
 open Akka.Actor
 open Akka.FSharp
+open Akka.Configuration
 open System.Security.Cryptography
 open System.Text
 
 let mutable numNodes = fsi.CommandLineArgs.[1] |> int64
 let numRequests = fsi.CommandLineArgs.[2] |> int
-let system = ActorSystem.Create("Project3")
+let config = 
+    ConfigurationFactory.ParseString(
+        @"akka {            
+            log-dead-letters = 0
+            log-dead-letters-during-shutdown = off
+        }")
+
+let system = ActorSystem.Create("Project3",config)
 
 type Communication =
     | Start of string
@@ -27,9 +35,9 @@ type Communication =
     | Notify of IActorRef * IActorRef
     | Temp of string * IActorRef
     | StaticInitiate of list<IActorRef>
-    | Lookup of String
+    | Lookup of String*String
     | LookupDone of String
-    | Forward of IActorRef*String
+    | Forward of IActorRef*String*String
 
 // let nodes = numNodes |> float
 let mutable m = 0//Math.Ceiling(Math.Log(nodes, 2.)) |> int
@@ -68,6 +76,7 @@ let peer (mailbox: Actor<_>) =
     let mutable selfAddress = 0
     let mutable selfHash = ""
     let mutable supervisorRef = mailbox.Self
+    let mutable keys = []
 
     let buildFingerTable (ind : int)(currentList:list<IActorRef>) = 
         let mutable list = []
@@ -219,32 +228,46 @@ let peer (mailbox: Actor<_>) =
                                             self <! SetPredecessor(nodeRef) 
                                                                 
  
-            | Lookup(keyHash) ->
+            | Lookup(keyHash,msg) ->
                 selfAddress <- mailbox.Self.Path.Name.Split("_").[1] |> int
-                Console.WriteLine ("Source " + mailbox.Self.ToString())
-                Console.WriteLine (selfAddress.ToString() + " " + fingerTable.ToString())
+                // Console.WriteLine supervisorRef
+                // Console.WriteLine ("Source " + mailbox.Self.ToString())
+                // Console.WriteLine (selfAddress.ToString() + " " + fingerTable.ToString())
                 if keyHash > selfHash && keyHash < snd(fingerTable.[0]) then//if nodeRef = mailbox.Self then
                     // mailbox.Sender() <! LookupDone("Done")
-                    supervisorRef <! LookupDone("Done")
+                    if msg = "Store" then
+                        keys <- List.append keys [keyHash]
+                    Console.WriteLine ("Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
+                    if msg <> "Store" then
+                        supervisorRef <! LookupDone("Done")
                 // else if List.contains (nodeRef, sha1Hash nodeRef) fingerTable then
                 //     mailbox.Sender() <! LookupDone("")
-                else 
+                else
                     let mutable low = ""
                     let mutable high = ""
                     let mutable flag = false
                     //let numid = sha1Hash nodeRef//nodeRef.Path.Name.Split("_").[1]
-                    for i in 0..m-2 do
+                    for i in 0..m - 2 do
                         low <- snd(fingerTable.[i]) //.Path.Name.Split("_").[1]
                         high <- snd(fingerTable.[i+1]) //.Path.Name.Split("_").[1]
                         if keyHash > low && keyHash < high then
                             flag <- true
-                            Console.WriteLine ("Forward to" + fst(fingerTable.[i]).ToString()) 
+                            // Console.WriteLine ("Forward to" + fst(fingerTable.[i]).ToString()) 
                             // mailbox.Sender() <! Forward(fst(fingerTable.[i]),keyHash)
-                            supervisorRef <! Forward(fst(fingerTable.[i]),keyHash)
-                    if not flag then
-                        // mailbox.Sender() <! Forward(fst(fingerTable.[m - 1]),keyHash)
-                        supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash)
-                        Console.WriteLine ("Forward to" + fst(fingerTable.[m - 1]).ToString()) 
+                            if msg = "Store" then
+                                supervisorRef <! Forward(fst(fingerTable.[i]),keyHash,"Store")
+                            else
+                                supervisorRef <! Forward(fst(fingerTable.[i]),keyHash,"Lookup")
+                    // if not flag && keyHash > snd(fingerTable.[m - 1]) then
+                    //     if msg = "Store" then
+                    //         supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash,"Store")
+                    //     else
+                    //         supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash,"Lookup")
+                    // Console.WriteLine flag        
+                    // if flag = false then
+                    //     // mailbox.Sender() <! Forward(fst(fingerTable.[m - 1]),keyHash)
+                    //     supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash)
+                        // Console.WriteLine ("Forward to" + fst(fingerTable.[m - 1]).ToString()) 
 
             | _ -> ignore()
 
@@ -307,7 +330,7 @@ let master (mailbox: Actor<_>) =
 
                 // while not (List.contains peersList.[init] initialList) do
                 //     fin <- rnd.Next(5,peersList.Length - 1)
-                let init = initialList.[1]//[rnd.Next(0, initialList.Length - 1)]
+                let mutable init = initialList.[1]//[rnd.Next(0, initialList.Length - 1)]
                 let init2 = initialList.[rnd.Next(0, initialList.Length - 1)]
                 // let mutable init = 0 
                 let mutable fin = null
@@ -344,8 +367,8 @@ let master (mailbox: Actor<_>) =
                 
                 // system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(1.0),TimeSpan.FromSeconds(3.0),peersList ,Stabilize(initialList))
                 let mutable newNode = null
-                for i in 5 .. numNodes-1 do
-                    
+                for i in 5 .. numNodes - 1 do
+                    init <- peersList.[rnd.Next(0,numNodes - 1)]
                     newNode <- peersList.[i]
 //                    initialList <- List.append initialList [newNode]
                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0),init ,FindSuccessor(newNode,initialList))
@@ -363,12 +386,18 @@ let master (mailbox: Actor<_>) =
                 |> List.iter (fun node ->
                         system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(2.0),TimeSpan.FromSeconds(1.0),node ,StaticInitiate(initialList)))
 
-                let mutable key = ""                
-                for i in 1..10 do 
-                    key <- sha1Hash ("Song_" + i.ToString())
+                let mutable key = ""
+                let mutable keyList = []
+
+                for i in 1..100 do
+                    while List.contains key keyList do
+                        key <- sha1Hash ("Song_" + rnd.Next(1,numNodes).ToString()) //i.ToString())
+                    keyList <- List.append keyList [key]
                     // Console.WriteLine key //+ rnd.Next(0,numNodes *10).ToString())
-                    system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0),initialList.[rnd.Next(0,initialList.Length - 1)] ,Lookup(key))        
-                    
+                    // initialList.[rnd.Next(0,initialList.Length - 1)] <! Lookup(key)                    
+                    system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(10.0),initialList.[rnd.Next(0,initialList.Length - 1)] ,Lookup(key,"Store"))
+                for k in keyList do
+                    Console.WriteLine k
                     //peersList.[i-1] <! Stabilize(initialList)
 
                 //     // init <! FindSuccessor(newNode, initialList)
@@ -407,10 +436,12 @@ let master (mailbox: Actor<_>) =
                     Console.WriteLine ("Average Hops per lookup" + (hops/lookups).ToString())
                     system.WhenTerminated.Wait()
 
-            | Forward(dest,nodeRef) ->
-
-                hops <- hops + 1
-                dest <! Lookup(nodeRef)
+            | Forward(dest,nodeRef,msg) ->
+                if msg = "Store" then
+                    dest <! Lookup(nodeRef,"Store")
+                else
+                    hops <- hops + 1
+                    dest <! Lookup(nodeRef,"Lookup")
 
             | _ -> ignore()
 
