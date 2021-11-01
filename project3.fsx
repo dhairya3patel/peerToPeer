@@ -10,7 +10,7 @@ open Akka.Configuration
 open System.Security.Cryptography
 open System.Text
 
-let mutable numNodes = fsi.CommandLineArgs.[1] |> int64
+let mutable numNodes = fsi.CommandLineArgs.[1] |> int
 let numRequests = fsi.CommandLineArgs.[2] |> int
 let config = 
     ConfigurationFactory.ParseString(
@@ -25,6 +25,7 @@ type Communication =
     | Start of string
     | BuildFingerTable of string
     | Initiate of String //list <IActorRef>
+    | Join of String
     | FindSuccessor of IActorRef*list<IActorRef>
     | SetSuccessor of IActorRef*list<IActorRef>
     | SetPredecessor of IActorRef
@@ -37,14 +38,15 @@ type Communication =
     | StaticInitiate of list<IActorRef>
     | Lookup of String*String
     | LookupDone of String
-    | Forward of IActorRef*String*String
+    | Forward of IActorRef*String
     | StoreKey of String
+    | SendLookup of list<String>
     | DistributeKeys of IActorRef
     | ReceiveKeys of list<String>
 
 // let nodes = numNodes |> float
-let mutable m = 0
-let mutable keyList = []//Math.Ceiling(Math.Log(nodes, 2.)) |> int
+let mutable m = 0//Math.Ceiling(Math.Log(nodes, 2.)) |> int
+let rnd = Random()
 
 // let mutable ring = []
 // let dummy = spawn system "dummy"
@@ -81,6 +83,8 @@ let peer (mailbox: Actor<_>) =
     let mutable selfHash = ""
     let mutable supervisorRef = mailbox.Self
     let mutable keys = []
+    let mutable lookupCount = 0
+    let mutable flag = false
 
     let buildFingerTable (ind : int)(currentList:list<IActorRef>) = 
         let mutable list = []
@@ -168,6 +172,9 @@ let peer (mailbox: Actor<_>) =
                 successor <- fst(fingerTable.[0])
                 successor <! SetPredecessor (mailbox.Self)
 
+
+                    // initialList.[r.Next(0,initialList.Length - 1)] <! Lookup(sha1Hash (r.Next(0,(numNodes |> int)).ToString()),"Lookup")
+
                 // Console.WriteLine ("Node " + selfAddress.ToString() + " " + fingerTable.ToString())
                 // if selfAddress = 1 then
                 //     Console.WriteLine successor
@@ -236,13 +243,15 @@ let peer (mailbox: Actor<_>) =
             | Lookup(keyHash,msg) ->
                 selfAddress <- mailbox.Self.Path.Name.Split("_").[1] |> int
                 // Console.WriteLine supervisorRef
-                //Console.WriteLine ("Source " + mailbox.Self.ToString())
+                // Console.WriteLine ("Source " + mailbox.Self.ToString())
                 // Console.WriteLine (selfAddress.ToString() + " " + fingerTable.ToString())
                 if keyHash > selfHash && keyHash < snd(fingerTable.[0]) then//if nodeRef = mailbox.Self then
                     // mailbox.Sender() <! LookupDone("Done")
                     if msg = "Store" then
+                        //if not (List.contains keyHash keyList) then
                         keys <- List.append keys [keyHash]
-                        Console.WriteLine ("Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
+                            //keyList <- List.append keyList [keyHash]
+                        // Console.WriteLine ("Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
 
                         //supervisorRef <! LookupDone("Done")
                     else                        
@@ -263,21 +272,20 @@ let peer (mailbox: Actor<_>) =
                             if msg = "Store" then
                                 fst(fingerTable.[i]) <! Lookup (keyHash,"Store")
                             else
-                                // Console.WriteLine("Lookup frwd to : " + fst(fingerTable.[i]).ToString())
-                                supervisorRef <! Forward(fst(fingerTable.[i]),keyHash,"Lookup")
+                                supervisorRef <! Forward(fst(fingerTable.[i]),keyHash)
                             tempBreak <- true 
                         else 
                             i <- i + 1    
 
                     if not tempBreak  then//&& keyHash > snd(fingerTable.[m - 1]) then
                         if msg = "Store" then
-                            if selfAddress = (numNodes |> int) then
+                            if selfAddress = numNodes then
                                 successor <! StoreKey(keyHash)
                             else
                                 fst(fingerTable.[m - 1]) <! Lookup (keyHash,"Store")
                             // supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash,"Store")
                         else
-                            supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash,"Lookup")
+                            supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash)
                     // Console.WriteLine flag        
                     // if flag = false then
                     //     // mailbox.Sender() <! Forward(fst(fingerTable.[m - 1]),keyHash)
@@ -285,6 +293,7 @@ let peer (mailbox: Actor<_>) =
                         // Console.WriteLine ("Forward to" + fst(fingerTable.[m - 1]).ToString()) 
 
             | StoreKey(keyHash) ->
+                //if not (List.contains keyHash keyList) then
                 keys <- List.append keys [keyHash]
                 // Console.WriteLine ("Outlier Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
                 // supervisorRef <! LookupDone("Done")
@@ -309,6 +318,40 @@ let peer (mailbox: Actor<_>) =
             | ReceiveKeys(sendKeys) -> keys <- List.append sendKeys keys
                                        Console.WriteLine("Self: " + mailbox.Self.Path.Name + "Keys: " + keys.ToString())
                                                
+            //        keyList <- List.append keyList [keyHash]
+                    //Console.WriteLine ("Outlier Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
+                // supervisorRef <! LookupDone("Done")
+
+            | SendLookup(keyList) ->
+                let mutable key = keyList .[rnd.Next(0,99)]
+                while List.contains key keys do
+                    key <- keyList .[rnd.Next(0,99)]
+                if lookupCount < numRequests then
+                    // Console.WriteLine (selfAddress.ToString() + " " + fingerTable.ToString() + " " + fingerTable.Length.ToString() + " " + m.ToString())
+                    // Console.WriteLine keyList
+                    let mutable tempBreak = false
+                    let mutable i = 0
+                    let mutable low = null
+                    let mutable high = null
+
+                    while i < m - 1 && not tempBreak do
+                        low <- snd(fingerTable.[i]) //.Path.Name.Split("_").[1]
+                        high <- snd(fingerTable.[i+1]) //.Path.Name.Split("_").[1]
+                        if key > low && key < high then
+                            // Console.WriteLine ("Forward to" + fst(fingerTable.[i]).ToString()) 
+                            // mailbox.Sender() <! Forward(fst(fingerTable.[i]),keyHash)
+                            fst(fingerTable.[i]) <! Lookup (key,"Lookup")
+                            tempBreak <- true 
+                        else 
+                            i <- i + 1    
+
+                    // if not tempBreak  then//&& keyHash > snd(fingerTable.[m - 1]) then
+                    //     fst(fingerTable.[m - 1]) <! Lookup (key,"Lookup")
+
+                    // initialList.[r.Next(0,initialList.Length - 1)],Lookup(sha1Hash (r.Next(0,(numNodes |> int)).ToString()),"Lookup"))
+                    lookupCount <- lookupCount + 1
+                // else if lookupCount = numRequests && not flag then
+                //     supervisorRef <! RequestsDone ("Done")
 
             | _ -> ignore()
 
@@ -319,9 +362,10 @@ let peer (mailbox: Actor<_>) =
 
 let master (mailbox: Actor<_>) =
     let mutable peersList = []
+    let mutable initialList = []
     let numNodes = numNodes |> int
-    let mutable hops = 0
-    let mutable lookups = 0
+    let mutable hops = 0.0
+    let mutable lookups = 0.0
     // let mutable ring = Array.create (pown 2 m) null
     let rec loop() =
         actor {
@@ -334,7 +378,7 @@ let master (mailbox: Actor<_>) =
                 
                 // Console.WriteLine(peersList.ToString())
                 // peersList.[0] <! Initiate("Begin")
-                let mutable initialList = []
+                // let mutable initialList = []
                 let mutable tempList = []
                 let rnd = Random()
 
@@ -371,9 +415,7 @@ let master (mailbox: Actor<_>) =
 
                 // while not (List.contains peersList.[init] initialList) do
                 //     fin <- rnd.Next(5,peersList.Length - 1)
-                let mutable init = initialList.[1]//[rnd.Next(0, initialList.Length - 1)]
-                // let mutable init = 0 
-                
+                //[rnd.Next(0, initialList.Length - 1)]
                 // for i in 6..(numNodes - 1) do
                 //     init <- rnd.Next(0,initialList.Length - 1)
 
@@ -405,17 +447,38 @@ let master (mailbox: Actor<_>) =
 
                 
                 // system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(1.0),TimeSpan.FromSeconds(3.0),peersList ,Stabilize(initialList))
+                let mutable init = null
                 let mutable newNode = null
+                // let mutable i = 5
+                // while i < numNodes do 
+                
                 for i in 5 .. numNodes - 1 do
                     init <- peersList.[rnd.Next(0,numNodes - 1)]
                     newNode <- peersList.[i]
+                    // Console.WriteLine newNode
 //                    initialList <- List.append initialList [newNode]
                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0),init ,FindSuccessor(newNode,initialList))
                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(4.0),peersList.[i - 1] ,Stabilize(initialList))
                     initialList <- List.append initialList [newNode]
+                    tempList <- List.append tempList [newNode]
                     m <- Math.Ceiling(Math.Log(initialList.Length |> float, 2.)) |> int
+                    // i <-  i + initialList.Length
                     // Console.WriteLine m
 //                    init <! FindSuccessor(newNode,initialList)
+                //i <- 6
+//                 while initialList.Length <= peersList.Length do
+//                     init <- peersList.[rnd.Next(0,numNodes - 1)]
+//                     while List.contains newNode initialList || List.contains newNode tempList || init = newNode do
+//                         i <- rnd.Next(0,numNodes - 1)
+//                         newNode <- peersList.[i]
+//                     Console.WriteLine newNode
+// //                    initialList <- List.append initialList [newNode]
+//                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(6.0),init ,FindSuccessor(newNode,initialList))
+//                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(10.0),peersList.[i - 1] ,Stabilize(initialList))
+//                     initialList <- List.append initialList [newNode]
+//                     // tempList <- List.append tempList [newNode]
+//                     m <- Math.Ceiling(Math.Log(initialList.Length |> float, 2.)) |> int
+
 
                 initialList
                 |> List.iter (fun node ->
@@ -426,17 +489,24 @@ let master (mailbox: Actor<_>) =
                         system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(2.0),TimeSpan.FromSeconds(1.0),node ,StaticInitiate(initialList)))
 
                 let mutable key = ""
-                
-
-                for i in 1..10 do
-                    while List.contains key keyList do
-                        key <- sha1Hash (i.ToString()) //+ rnd.Next(1,numNodes).ToString()) // "Key_"  + 
+                let mutable keyList = []
+                for i in 1..100 do
+                    // while List.contains key keyList do
+                    key <- sha1Hash (i.ToString()) //+ rnd.Next(1,numNodes).ToString()) // "Key_"  + 
                     keyList <- List.append keyList [key]
                                   
                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(10.0),initialList.[rnd.Next(0,initialList.Length - 1)] ,Lookup(key,"Store"))
                 for k in keyList do
                     Console.WriteLine k
                     //peersList.[i-1] <! Stabilize(initialList)
+
+                //     // init <! FindSuccessor(newNode, initialList)
+                //     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(5.0),init ,FindSuccessor(newNode, initialList))
+                //     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(5.0),peersList.[i-1] ,Stabilize(initialList))
+
+                initialList
+                |> List.iter (fun node ->
+                    system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(12.0),TimeSpan.FromSeconds(1.0),node ,SendLookup(keyList)))
 
                     // while fin = init || List.contains fin initialList do
                     //     let init = initialList.[rnd.Next(i, initialList.Length - 1)]
@@ -457,23 +527,38 @@ let master (mailbox: Actor<_>) =
                 // let testKey = "Song_3"
                 // initialList.[4] <! Lookup (sha1Hash testKey)
 
+//             | Join (_) ->
+
+//                 let mutable init = null
+//                 let mutable newNode = null
+//                 // let mutable i = 5
+//                 // while i < numNodes do 
+//                 for i in 5 .. numNodes - 1 do
+//                     init <- peersList.[rnd.Next(0,numNodes - 1)]
+//                     newNode <- peersList.[i]
+//                     // Console.WriteLine newNode
+// //                    initialList <- List.append initialList [newNode]
+//                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0),init ,FindSuccessor(newNode,initialList))
+//                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(4.0),peersList.[i - 1] ,Stabilize(initialList))
+//                     initialList <- List.append initialList [newNode]
+//                     //tempList <- List.append tempList [newNode]
+//                     m <- Math.Ceiling(Math.Log(initialList.Length |> float, 2.)) |> int
+
+
             | LookupDone(_) ->
-                hops <- hops + 1
-                lookups <- lookups + 1
-                // Console.WriteLine lookups
-                if lookups = numNodes*numRequests then 
-                    Console.WriteLine ("Total Hops" + hops.ToString())
-                    Console.WriteLine ("Total Requests" + numRequests.ToString())
-                    Console.WriteLine ("Total Lookups" + lookups.ToString())
-                    Console.WriteLine ("Average Hops per lookup" + (hops/lookups).ToString())
+                hops <- hops + 1.0
+                lookups <- lookups + 1.0
+                Console.WriteLine (lookups.ToString() + " " + ( hops/lookups |> float).ToString())
+                if lookups = (numNodes*numRequests |> float)  then 
+                    Console.WriteLine ("Total Hops " + hops.ToString())
+                    Console.WriteLine ("Total Requests " + numRequests.ToString())
+                    Console.WriteLine ("Total Lookups " + lookups.ToString())
+                    Console.WriteLine ("Average Hops per lookup " + (hops/lookups).ToString())
                     system.WhenTerminated.Wait()
 
-            | Forward(dest,nodeRef,msg) ->
-                if msg = "Store" then
-                    dest <! Lookup(nodeRef,"Store")
-                else
-                    hops <- hops + 1
-                    dest <! Lookup(nodeRef,"Lookup")
+            | Forward(dest,nodeRef) ->
+                hops <- hops + 1.0
+                dest <! Lookup(nodeRef,"Lookup")
 
             | _ -> ignore()
 
@@ -484,4 +569,5 @@ let master (mailbox: Actor<_>) =
 let masterActor = spawn system "master" master
 
 masterActor <! Start("Start")
+// system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(3.0), masterActor, Join ("Join"))
 system.WhenTerminated.Wait()
