@@ -39,6 +39,8 @@ type Communication =
     | LookupDone of String
     | Forward of IActorRef*String*String
     | StoreKey of String
+    | DistributeKeys of IActorRef
+    | ReceiveKeys of list<String>
 
 // let nodes = numNodes |> float
 let mutable m = 0
@@ -183,6 +185,7 @@ let peer (mailbox: Actor<_>) =
                 // Console.WriteLine ("successor" + successor.ToString())  
                 // Console.WriteLine("New node fingertable: " + fingerTable.ToString())
                 nodeRef <! SetPredecessor(mailbox.Self)
+                system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(3.0),TimeSpan.FromSeconds(3.0),nodeRef ,DistributeKeys(mailbox.Self))
                 // Console.WriteLine("SETSUCCESSORDEBUG " + successor.ToString() + "Predecessor " + mailbox.Self.ToString())
                 // initialList <- List.append initialList [successor]
     
@@ -285,6 +288,28 @@ let peer (mailbox: Actor<_>) =
                 keys <- List.append keys [keyHash]
                 // Console.WriteLine ("Outlier Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
                 // supervisorRef <! LookupDone("Done")
+
+            | DistributeKeys(nodeRef) -> //Console.WriteLine("Dist: " + nodeRef.ToString())
+                                        //  Console.WriteLine("Dist Self: " + mailbox.Self.ToString())
+                                         let mutable sendKeys = []
+                                         
+                                        //  keys <- []
+                                         let predecessorHash = sha1Hash (nodeRef.Path.Name.Split("_").[1])
+                                         for currentKey in keys do
+                                            if currentKey < predecessorHash then
+                                                // Console.WriteLine("Hello")
+                                                
+                                                sendKeys <- List.append [currentKey] sendKeys
+                                                keys <- keys |> List.indexed |> List.filter(fun(_,x)-> x <> currentKey) |> List.map snd
+                                            // else 
+                                            //     keys <- List.append [x] keys
+                                         nodeRef <! ReceiveKeys(sendKeys)
+                                        //  Console.WriteLine("DistKeys: " + mailbox.Self.Path.Name + "Keys: " + keys.ToString() )
+
+            | ReceiveKeys(sendKeys) -> keys <- List.append sendKeys keys
+                                       Console.WriteLine("Self: " + mailbox.Self.Path.Name + "Keys: " + keys.ToString())
+                                               
+
             | _ -> ignore()
 
             return! loop()
@@ -403,14 +428,14 @@ let master (mailbox: Actor<_>) =
                 let mutable key = ""
                 
 
-                for i in 1..100 do
+                for i in 1..10 do
                     while List.contains key keyList do
                         key <- sha1Hash (i.ToString()) //+ rnd.Next(1,numNodes).ToString()) // "Key_"  + 
                     keyList <- List.append keyList [key]
                                   
                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(10.0),initialList.[rnd.Next(0,initialList.Length - 1)] ,Lookup(key,"Store"))
-                // for k in keyList do
-                //     Console.WriteLine k
+                for k in keyList do
+                    Console.WriteLine k
                     //peersList.[i-1] <! Stabilize(initialList)
 
                     // while fin = init || List.contains fin initialList do
