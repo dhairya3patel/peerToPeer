@@ -38,6 +38,7 @@ type Communication =
     | Lookup of String*String
     | LookupDone of String
     | Forward of IActorRef*String*String
+    | StoreKey of String
 
 // let nodes = numNodes |> float
 let mutable m = 0//Math.Ceiling(Math.Log(nodes, 2.)) |> int
@@ -91,7 +92,7 @@ let peer (mailbox: Actor<_>) =
                 temp <- temp + 1
                 a <- currentList |> List.indexed |> List.filter(fun(_,x)-> x.Path.Name.Split('_').[1] |> int = temp) |> List.map fst
             // Console.WriteLine a
-            let currentHash = currentList.[a.[0]].Path.Name  //.Split('_').[1] |> int
+            let currentHash = currentList.[a.[0]].Path.Name.Split('_').[1] |> int
             list <- List.append list [(currentList.[a.[0]] , sha1Hash currentHash)]
         list
 
@@ -104,7 +105,7 @@ let peer (mailbox: Actor<_>) =
                 successor <- mailbox.Self
                 // successorAddress <- 
                 selfAddress <- mailbox.Self.Path.Name.Split('_').[1] |> int
-                selfHash <- sha1Hash mailbox.Self.Path.Name
+                selfHash <- sha1Hash selfAddress  // mailbox.Self.Path.Name
                 //fingerTable.Add(selfAddress + 1, successor)
                 fingerTable <- List.append fingerTable [successor, selfHash]
                 supervisorRef <- mailbox.Sender()
@@ -173,7 +174,7 @@ let peer (mailbox: Actor<_>) =
                 // Console.WriteLine("DEBUG Self Node: " + mailbox.Self.Path.Name + "SUCC " + successor.ToString())
                 // Console.WriteLine("DEBUG Self Node: " + mailbox.Self.Path.Name + "PRED " + predecessor.ToString())
                 // fingerTable.[selfAddress + 1] <- successor
-                let succId = successor.Path.Name //.Split('_').[1] |> int
+                let succId = successor.Path.Name.Split('_').[1] |> int
                 let list = buildFingerTable 1 initialList
                 fingerTable <- List.append [(successor ,sha1Hash succId)] list.[1..list.Length - 1]
                 
@@ -231,44 +232,57 @@ let peer (mailbox: Actor<_>) =
             | Lookup(keyHash,msg) ->
                 selfAddress <- mailbox.Self.Path.Name.Split("_").[1] |> int
                 // Console.WriteLine supervisorRef
-                // Console.WriteLine ("Source " + mailbox.Self.ToString())
+                //Console.WriteLine ("Source " + mailbox.Self.ToString())
                 // Console.WriteLine (selfAddress.ToString() + " " + fingerTable.ToString())
                 if keyHash > selfHash && keyHash < snd(fingerTable.[0]) then//if nodeRef = mailbox.Self then
                     // mailbox.Sender() <! LookupDone("Done")
                     if msg = "Store" then
                         keys <- List.append keys [keyHash]
-                    Console.WriteLine ("Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
-                    if msg <> "Store" then
+                        Console.WriteLine ("Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
+
+                        //supervisorRef <! LookupDone("Done")
+                    else                        
                         supervisorRef <! LookupDone("Done")
                 // else if List.contains (nodeRef, sha1Hash nodeRef) fingerTable then
                 //     mailbox.Sender() <! LookupDone("")
                 else
                     let mutable low = ""
                     let mutable high = ""
-                    let mutable flag = false
-                    //let numid = sha1Hash nodeRef//nodeRef.Path.Name.Split("_").[1]
-                    for i in 0..m - 2 do
+                    let mutable tempBreak = false
+                    let mutable i = 0
+                    while not tempBreak && i < m - 1 do
                         low <- snd(fingerTable.[i]) //.Path.Name.Split("_").[1]
                         high <- snd(fingerTable.[i+1]) //.Path.Name.Split("_").[1]
                         if keyHash > low && keyHash < high then
-                            flag <- true
                             // Console.WriteLine ("Forward to" + fst(fingerTable.[i]).ToString()) 
                             // mailbox.Sender() <! Forward(fst(fingerTable.[i]),keyHash)
                             if msg = "Store" then
-                                supervisorRef <! Forward(fst(fingerTable.[i]),keyHash,"Store")
+                                fst(fingerTable.[i]) <! Lookup (keyHash,"Store")
                             else
                                 supervisorRef <! Forward(fst(fingerTable.[i]),keyHash,"Lookup")
-                    // if not flag && keyHash > snd(fingerTable.[m - 1]) then
-                    //     if msg = "Store" then
-                    //         supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash,"Store")
-                    //     else
-                    //         supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash,"Lookup")
+                            tempBreak <- true 
+                        else 
+                            i <- i + 1    
+
+                    if not tempBreak  then//&& keyHash > snd(fingerTable.[m - 1]) then
+                        if msg = "Store" then
+                            if selfAddress = (numNodes |> int) then
+                                successor <! StoreKey(keyHash)
+                            else
+                                fst(fingerTable.[m - 1]) <! Lookup (keyHash,"Store")
+                            // supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash,"Store")
+                        else
+                            supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash,"Lookup")
                     // Console.WriteLine flag        
                     // if flag = false then
                     //     // mailbox.Sender() <! Forward(fst(fingerTable.[m - 1]),keyHash)
                     //     supervisorRef <! Forward(fst(fingerTable.[m - 1]),keyHash)
                         // Console.WriteLine ("Forward to" + fst(fingerTable.[m - 1]).ToString()) 
 
+            | StoreKey(keyHash) ->
+                keys <- List.append keys [keyHash]
+                Console.WriteLine ("Outlier Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
+                // supervisorRef <! LookupDone("Done")
             | _ -> ignore()
 
             return! loop()
@@ -389,9 +403,9 @@ let master (mailbox: Actor<_>) =
                 let mutable key = ""
                 let mutable keyList = []
 
-                for i in 1..100 do
+                for i in 1..1000 do
                     while List.contains key keyList do
-                        key <- sha1Hash ("Song_" + rnd.Next(1,numNodes).ToString()) //i.ToString())
+                        key <- sha1Hash (i.ToString()) //+ rnd.Next(1,numNodes).ToString()) // "Key_"  + 
                     keyList <- List.append keyList [key]
                     // Console.WriteLine key //+ rnd.Next(0,numNodes *10).ToString())
                     // initialList.[rnd.Next(0,initialList.Length - 1)] <! Lookup(key)                    
