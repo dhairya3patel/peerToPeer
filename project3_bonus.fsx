@@ -548,15 +548,16 @@ let master (mailbox: Actor<_>) =
 
                 // peersList.[4] <! PoisonPill.Instance,
                 let mutable key = ""
+                // let mutable x = ""
                 for i in 1..numNodes*2 do
                     // while List.contains key keyList do
                     key <- sha1Hash (i.ToString()) //+ rnd.Next(1,numNodes).ToString()) // "Key_"  + 
                     // keyList <- List.append keyList [key]
-                    // let x = rnd.Next(0,initialList.Length - 1)
-                    // while not (List.contains (initialList.[rnd.Next(0,initialList.Length - 1)].Path.Name.Split("_").[1] |> int) failedList) do
+                    let mutable x = initialList.[rnd.Next(0,initialList.Length - 1)]
+                    while (List.contains (x.Path.Name.Split("_").[1] |> int) failedList) do
 
-
-                    system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(10.0),initialList.[rnd.Next(0,initialList.Length - 1)] ,Lookup(key,"Store"))
+                        x <- initialList.[rnd.Next(0,initialList.Length - 1)]
+                    system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(10.0),x ,Lookup(key,"Store"))
                 // for k in keyList do
                 //     Console.WriteLine k
                     //peersList.[i-1] <! Stabilize(initialList)
