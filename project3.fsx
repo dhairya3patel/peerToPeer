@@ -238,7 +238,6 @@ let peer (mailbox: Actor<_>) =
             | Lookup (keyHash, msg) ->
 
                 selfAddress <- mailbox.Self.Path.Name.Split("_").[1] |> int
-
                 if keyHash > selfHash
                    && keyHash < snd (fingerTable.[0]) then
 
