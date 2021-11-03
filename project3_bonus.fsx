@@ -45,7 +45,7 @@ type Communication =
     | LookupDone of String
     | Forward of IActorRef*String
     | StoreKey of String
-    | SendLookup of list<String>
+    | SendLookup of String
     | DistributeKeys of IActorRef
     | ReceiveKeys of list<String>
     | Ping of String
@@ -54,7 +54,7 @@ type Communication =
 // let nodes = numNodes |> float
 let mutable m = 0//Math.Ceiling(Math.Log(nodes, 2.)) |> int
 let rnd = Random()
-
+let mutable keyList = []
 // let mutable ring = []
 // let dummy = spawn system "dummy"
 // let mutable ring = Array.create (pown 2 m) null
@@ -284,7 +284,8 @@ let peer (mailbox: Actor<_>) =
                         if msg = "Store" then
                             //if not (List.contains keyHash keyList) then
                             keys <- List.append keys [keyHash]
-                                //keyList <- List.append keyList [keyHash]
+                            keyList <- List.append keyList [keyHash]
+                            Console.WriteLine keyList
                             // Console.WriteLine ("Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
 
                             //supervisorRef <! LookupDone("Done")
@@ -329,6 +330,8 @@ let peer (mailbox: Actor<_>) =
             | StoreKey(keyHash) ->
                 //if not (List.contains keyHash keyList) then
                 keys <- List.append keys [keyHash]
+                keyList <- List.append keyList [keyHash]
+                Console.WriteLine keyList
                 // Console.WriteLine ("Outlier Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
                 // supervisorRef <! LookupDone("Done")
 
@@ -356,10 +359,10 @@ let peer (mailbox: Actor<_>) =
                     //Console.WriteLine ("Outlier Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
                 // supervisorRef <! LookupDone("Done")
 
-            | SendLookup(keyList) ->
-                let mutable key = keyList .[rnd.Next(0,99)]
+            | SendLookup(_) ->
+                let mutable key = keyList .[rnd.Next(0,keyList.Length - 1)]
                 while List.contains key keys do
-                    key <- keyList .[rnd.Next(0,99)]
+                    key <- keyList .[rnd.Next(0,keyList.Length - 1)]
                 if lookupCount < numRequests then
                     // Console.WriteLine (selfAddress.ToString() + " " + fingerTable.ToString() + " " + fingerTable.Length.ToString() + " " + m.ToString())
                     // Console.WriteLine keyList
@@ -372,10 +375,10 @@ let peer (mailbox: Actor<_>) =
                         low <- snd(fingerTable.[i]) //.Path.Name.Split("_").[1]
                         high <- snd(fingerTable.[i+1]) //.Path.Name.Split("_").[1]
                         if key > low && key < high then
-                            // Console.WriteLine ("Forward to" + fst(fingerTable.[i]).ToString()) 
-                            // mailbox.Sender() <! Forward(fst(fingerTable.[i]),keyHash)
+                            lookupCount <- lookupCount + 1
+                            tempBreak <- true
                             fst(fingerTable.[i]) <! Lookup (key,"Lookup")
-                            tempBreak <- true 
+                             
                         else 
                             i <- i + 1    
 
@@ -383,16 +386,9 @@ let peer (mailbox: Actor<_>) =
                     //     fst(fingerTable.[m - 1]) <! Lookup (key,"Lookup")
 
                     // initialList.[r.Next(0,initialList.Length - 1)],Lookup(sha1Hash (r.Next(0,(numNodes |> int)).ToString()),"Lookup"))
-                    lookupCount <- lookupCount + 1
+                    
                 // else if lookupCount = numRequests && not flag then
                 //     supervisorRef <! RequestsDone ("Done")
-
-            | Ping(_) -> mailbox.Sender() <! PingResponse("Ping")
-
-            | PingResponse(msg) -> if msg = "Ping" then
-                                       Console.WriteLine("Alive")
-                                   else
-                                       Console.WriteLine("Dead")
 
             | _ -> ignore()
                
@@ -409,6 +405,7 @@ let master (mailbox: Actor<_>) =
     let numNodes = numNodes |> int
     let mutable hops = 0.0
     let mutable lookups = 0.0
+    let mutable totalHops = 0.0
     // let mutable ring = Array.create (pown 2 m) null
     let rec loop() =
         actor {
@@ -549,11 +546,10 @@ let master (mailbox: Actor<_>) =
 
                 // peersList.[4] <! PoisonPill.Instance,
                 let mutable key = ""
-                let mutable keyList = []
-                for i in 1..100 do
+                for i in 1..numNodes*2 do
                     // while List.contains key keyList do
                     key <- sha1Hash (i.ToString()) //+ rnd.Next(1,numNodes).ToString()) // "Key_"  + 
-                    keyList <- List.append keyList [key]
+                    // keyList <- List.append keyList [key]
                     // let x = rnd.Next(0,initialList.Length - 1)
                     // while not (List.contains (initialList.[rnd.Next(0,initialList.Length - 1)].Path.Name.Split("_").[1] |> int) failedList) do
 
@@ -569,8 +565,8 @@ let master (mailbox: Actor<_>) =
 
                 initialList
                 |> List.iter (fun node ->
-                    while not (List.contains (node.Path.Name.Split(" ").[1] |> int) failedList) do
-                    system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(12.0),TimeSpan.FromSeconds(1.0),node ,SendLookup(keyList)))
+                    while not (List.contains (node.Path.Name.Split("_").[1] |> int) failedList) do
+                    system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(12.0),TimeSpan.FromSeconds(1.0),node ,SendLookup("Lookup")))
 
                     // while fin = init || List.contains fin initialList do
                     //     let init = initialList.[rnd.Next(i, initialList.Length - 1)]
@@ -610,17 +606,20 @@ let master (mailbox: Actor<_>) =
 
             | LookupDone(_) ->
                 hops <- hops + 1.0
+                totalHops <- totalHops + 1.0
                 lookups <- lookups + 1.0
-                Console.WriteLine (lookups.ToString() + " " + ( hops/lookups |> float).ToString())
+                Console.WriteLine (lookups.ToString() + " " + hops.ToString())
+                hops <- 0.0
                 if lookups = (numNodes*numRequests |> float)  then 
-                    Console.WriteLine ("Total Hops " + hops.ToString())
+                    Console.WriteLine ("Total Hops " + totalHops.ToString())
                     Console.WriteLine ("Total Requests " + numRequests.ToString())
                     Console.WriteLine ("Total Lookups " + lookups.ToString())
-                    Console.WriteLine ("Average Hops per lookup " + (hops/lookups).ToString())
+                    Console.WriteLine ("Average Hops per lookup " + (totalHops/lookups).ToString())
                     system.WhenTerminated.Wait()
 
             | Forward(dest,nodeRef) ->
                 hops <- hops + 1.0
+                totalHops <- totalHops + 1.0
                 dest <! Lookup(nodeRef,"Lookup")
 
             | _ -> ignore()
