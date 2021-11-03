@@ -223,8 +223,8 @@ let peer (mailbox: Actor<_>) =
                 // Console.WriteLine ("successor" + successor.ToString())  
                 // Console.WriteLine("New node fingertable: " + fingerTable.ToString())
                 nodeRef <! SetPredecessor(mailbox.Self)
-                if not (List.contains (nodeRef.Path.Name.Split('_').[1] |> int) failedList ) then
-                    system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(3.0),TimeSpan.FromSeconds(3.0),nodeRef ,DistributeKeys(mailbox.Self))
+                // if not (List.contains (nodeRef.Path.Name.Split('_').[1] |> int) failedList ) then
+                system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(3.0),TimeSpan.FromSeconds(3.0),nodeRef ,DistributeKeys(mailbox.Self))
                 // Console.WriteLine("SETSUCCESSORDEBUG " + successor.ToString() + "Predecessor " + mailbox.Self.ToString())
                 // initialList <- List.append initialList [successor]
     
@@ -244,12 +244,13 @@ let peer (mailbox: Actor<_>) =
                                                         //  Console.WriteLine("REVERT "+mailbox.Self.Path.Name + " Predecessor: " + predecessor.ToString())
 
 
-            | StabilizeReceiver(nodeRef, initialList) -> let x = nodeRef.Path.Name.Split('_').[1] |> int
-                                                         let succId = successor.Path.Name.Split('_').[1] |> int
-                                                         
-                                                         if (selfAddress > succId && x > selfAddress) || (selfAddress < succId && x > selfAddress && x < succId) then
-                                                            // Console.WriteLine("Hello")
-                                                            mailbox.Self <! SetSuccessor(nodeRef,initialList)
+            | StabilizeReceiver(nodeRef, initialList) -> if not (List.contains (mailbox.Self.Path.Name.Split('_').[1] |> int) failedList ) then
+                                                             let x = nodeRef.Path.Name.Split('_').[1] |> int
+                                                             let succId = successor.Path.Name.Split('_').[1] |> int
+                                                             
+                                                             if (selfAddress > succId && x > selfAddress) || (selfAddress < succId && x > selfAddress && x < succId) then
+                                                                // Console.WriteLine("Hello")
+                                                                mailbox.Self <! SetSuccessor(nodeRef,initialList)
                                                             // nodeRef <! SetPredecessor(mailbox.Self)
                                                             // nodeRef <! Notify(mailbox.Self, nodeRef)
                                                             // Console.WriteLine("Stabilize Self: " + mailbox.Self.ToString() + " " + "Successor: " + nodeRef.ToString() )
