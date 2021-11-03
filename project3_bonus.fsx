@@ -285,7 +285,7 @@ let peer (mailbox: Actor<_>) =
                             //if not (List.contains keyHash keyList) then
                             keys <- List.append keys [keyHash]
                             keyList <- List.append keyList [keyHash]
-                            Console.WriteLine keyList
+                            //Console.WriteLine keyList
                             // Console.WriteLine ("Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
 
                             //supervisorRef <! LookupDone("Done")
@@ -331,7 +331,7 @@ let peer (mailbox: Actor<_>) =
                 //if not (List.contains keyHash keyList) then
                 keys <- List.append keys [keyHash]
                 keyList <- List.append keyList [keyHash]
-                Console.WriteLine keyList
+                //Console.WriteLine keyList
                 // Console.WriteLine ("Outlier Destination " + mailbox.Self.ToString() + " " + keys.ToString() + " " + keys.Length.ToString())
                 // supervisorRef <! LookupDone("Done")
 
@@ -361,6 +361,7 @@ let peer (mailbox: Actor<_>) =
 
             | SendLookup(_) ->
                 let mutable key = keyList .[rnd.Next(0,keyList.Length - 1)]
+                //Console.WriteLine ("Sending " + mailbox.Self.ToString()) 
                 while List.contains key keys do
                     key <- keyList .[rnd.Next(0,keyList.Length - 1)]
                 if lookupCount < numRequests then
@@ -565,8 +566,8 @@ let master (mailbox: Actor<_>) =
 
                 initialList
                 |> List.iter (fun node ->
-                    while not (List.contains (node.Path.Name.Split("_").[1] |> int) failedList) do
-                    system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(12.0),TimeSpan.FromSeconds(1.0),node ,SendLookup("Lookup")))
+                    if not (List.contains (node.Path.Name.Split("_").[1] |> int) failedList) then
+                        system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(12.0),TimeSpan.FromSeconds(1.0),node ,SendLookup("Lookup")))
 
                     // while fin = init || List.contains fin initialList do
                     //     let init = initialList.[rnd.Next(i, initialList.Length - 1)]
