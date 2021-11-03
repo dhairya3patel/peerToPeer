@@ -24,7 +24,7 @@ let mutable failedList = []
 for i in numNodes/5 .. numNodes/5 + 2 do
     failedList <- List.append failedList [i]
 
-// Console.WriteLine("Failed List: " + failedList.ToString())
+Console.WriteLine("Failed List: " + failedList.ToString())
 
 type Communication =
     | Start of string
@@ -162,37 +162,38 @@ let peer (mailbox: Actor<_>) =
                 let succId = successor.Path.Name.Split('_').[1] |> int
                 //Console.WriteLine(succId)
                 //let mutable break
-                if numId > selfAddress && numId < succId then
-                    nodeRef <! SetSuccessor(fst(fingerTable.[0]),initialList)
-                    nodeRef <! SetPredecessor(mailbox.Self)
-                    // fst(fingerTable.[0]) <! Ping("Ping")
-                    //nodeRef <! SetSuccessor(successor)
-                else
-                    let mutable tempBreak = false
-                    let mutable i = m - 1
-                    let mutable fingerId = 0
-                    if fingerTable.Length = m then
-                        while not tempBreak && i >= 0 do 
-                            fingerId <- (fst(fingerTable.[i]).Path.Name.Split('_').[1]) |> int
-                            if fingerId > selfAddress && fingerId < numId then
-                                tempBreak <- true
+                if not (List.isEmpty fingerTable) && not(isNull successor) then
+                    if numId > selfAddress && numId < succId then
+                        nodeRef <! SetSuccessor(fst(fingerTable.[0]),initialList)
+                        nodeRef <! SetPredecessor(mailbox.Self)
+                        // fst(fingerTable.[0]) <! Ping("Ping")
+                        //nodeRef <! SetSuccessor(successor)
+                    else
+                        let mutable tempBreak = false
+                        let mutable i = m - 1
+                        let mutable fingerId = 0
+                        if fingerTable.Length = m then
+                            while not tempBreak && i >= 0 do 
+                                fingerId <- (fst(fingerTable.[i]).Path.Name.Split('_').[1]) |> int
+                                if fingerId > selfAddress && fingerId < numId then
+                                    tempBreak <- true
+                                else
+                                    i <- i - 1
+                            if tempBreak && not (List.contains (nodeRef.Path.Name.Split('_').[1] |> int) failedList) then 
+                                fst(fingerTable.[i]) <! FindSuccessor(nodeRef,initialList)
                             else
-                                i <- i - 1
-                        if tempBreak then 
-                            fst(fingerTable.[i]) <! FindSuccessor(nodeRef,initialList)
-                        else
-                            nodeRef <! SetSuccessor(fst(fingerTable.[0]),initialList)
+                                nodeRef <! SetSuccessor(fst(fingerTable.[0]),initialList)
                             // fst(fingerTable.[0]) <! Ping("Ping")
                             // successor <! SetPredecessor(mailbox.Self)
                             // Console.WriteLine("New Predecessor")
             
             | StaticInitiate(initialList) ->
-                if not (List.contains (mailbox.Self.Path.Name.Split('_').[1] |> int) failedList ) then
+                if not (List.contains (mailbox.Self.Path.Name.Split('_').[1] |> int) failedList ) && not (List.contains (fst(fingerTable.[0]).Path.Name.Split("_").[1] |> int) failedList ) then
                     fingerTable <- buildFingerTable 1 initialList
                     successor <- fst(fingerTable.[0])
                     successor <! SetPredecessor (mailbox.Self)
                     // let res = mailbox.Context.Watch(successor)  
-                    Console.WriteLine(mailbox.Self.ToString() + "FT" + fingerTable.ToString()) 
+                    // Console.WriteLine(mailbox.Self.ToString() + "FT" + fingerTable.ToString()) 
                 // else
                     // Console.WriteLine("Failed Node")        
                 // fingerTable
@@ -235,7 +236,8 @@ let peer (mailbox: Actor<_>) =
                 
             | Stabilize(initialList) -> //Console.WriteLine("STDEBUG: "+ mailbox.Self.ToString())
                                         // Console.WriteLine("STDEBUGSUCC: "+ successor.ToString())
-                                        successor <! RevertPredecessor(mailbox.Self, initialList)
+                                        if not (List.isEmpty fingerTable) && not(isNull successor) then
+                                            successor <! RevertPredecessor(mailbox.Self, initialList)
                                         // Console.WriteLine("Stabilize invoked for: " + successor.ToString() + "By: " + mailbox.Self.Path.Name)
                               
             | RevertPredecessor(nodeRef, initialList) -> mailbox.Sender() <! StabilizeReceiver(predecessor, initialList)
@@ -402,7 +404,7 @@ let peer (mailbox: Actor<_>) =
 
 let master (mailbox: Actor<_>) =
     let mutable peersList = []
-    let mutable failedList = []
+    // let mutable failedList = []
     let mutable initialList = []
     let numNodes = numNodes |> int
     let mutable hops = 0.0
@@ -444,7 +446,7 @@ let master (mailbox: Actor<_>) =
                 //     Console.WriteLine(i)
                 peersList
                 |> List.iter (fun node ->
-                if not (List.contains (node.Path.Name.Split('_').[1] |> int) failedList ) then
+                
                         node
                         <! Initiate("Begin"))
                 // peersList.[5] <! system.Terminate
@@ -497,18 +499,21 @@ let master (mailbox: Actor<_>) =
                 // while i < numNodes do 
                 
                 for i in 5 .. numNodes - 1 do
-                    let mutable initAdd = rnd.Next(0,numNodes - 1)
-                    while not (List.contains initAdd failedList) do
-                        initAdd <- rnd.Next(0,numNodes - 1)
-                    init <- peersList.[initAdd - 1]
+//                     let mutable initAdd = rnd.Next(0,numNodes - 1)
+//                     while not (List.contains initAdd failedList) do
+//                         initAdd <- rnd.Next(0,numNodes - 1)
+//                     init <- peersList.[initAdd - 1]
+//                     newNode <- peersList.[i]
+//                     // Console.WriteLine newNode
+// //                    initialList <- List.append initialList [newNode]
+//                     // let initAdd = init.Path.Name.Split('_').[1] |> int
+//                     let mutable newNodeAdd = i
+//                     while not (List.contains i failedList) do
+//                         newNodeAdd <- newNodeAdd + 1
+//                     newNode <- peersList.[newNodeAdd - 1]
+
+                    init <- peersList.[rnd.Next(0,numNodes - 1)]
                     newNode <- peersList.[i]
-                    // Console.WriteLine newNode
-//                    initialList <- List.append initialList [newNode]
-                    // let initAdd = init.Path.Name.Split('_').[1] |> int
-                    let mutable newNodeAdd = i
-                    while not (List.contains i failedList) do
-                        newNodeAdd <- newNodeAdd + 1
-                    newNode <- peersList.[newNodeAdd - 1]
 
                     
                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0),init ,FindSuccessor(newNode,initialList))
@@ -549,7 +554,10 @@ let master (mailbox: Actor<_>) =
                     // while List.contains key keyList do
                     key <- sha1Hash (i.ToString()) //+ rnd.Next(1,numNodes).ToString()) // "Key_"  + 
                     keyList <- List.append keyList [key]
-                                  
+                    // let x = rnd.Next(0,initialList.Length - 1)
+                    // while not (List.contains (initialList.[rnd.Next(0,initialList.Length - 1)].Path.Name.Split("_").[1] |> int) failedList) do
+
+
                     system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(10.0),initialList.[rnd.Next(0,initialList.Length - 1)] ,Lookup(key,"Store"))
                 // for k in keyList do
                 //     Console.WriteLine k
@@ -561,6 +569,7 @@ let master (mailbox: Actor<_>) =
 
                 initialList
                 |> List.iter (fun node ->
+                    while not (List.contains (node.Path.Name.Split(" ").[1] |> int) failedList) do
                     system.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(12.0),TimeSpan.FromSeconds(1.0),node ,SendLookup(keyList)))
 
                     // while fin = init || List.contains fin initialList do
